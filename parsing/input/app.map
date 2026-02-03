@@ -1,0 +1,44 @@
+========================================================================
+CTC LINKER MAP FILE
+========================================================================
+
+Memory Configuration
+--------------------
+
+Name             Origin             Length
+DLMU2            0xB0020000         0x00010000
+DLMU1            0xB0010000         0x00010000
+
+
+========================================================================
+SECTION DETAILS
+========================================================================
+
+
+.ford_dlmu2_rstsafe_data_sections_begin memory region -> DATA_DLMU_2
+0x00000000B0020040
+
+.data.var1
+0x00000000B0020100     size 0x100
+
+.data.var2
+0x00000000B0020200     size 0x80
+
+.ford_dlmu2_rstsafe_data_sections_end memory region -> DATA_DLMU_2
+0x00000000B002FFFF
+
+
+
+.ford_dlmu1_rstsafe_data_sections_begin memory region -> DATA_DLMU_1
+0x00000000B0010040
+
+.data.test1
+0x00000000B0010100     size 0x50
+
+.ford_dlmu1_rstsafe_data_sections_end memory region -> DATA_DLMU_1
+0x00000000B001FFFF
+
+
+========================================================================
+END OF MAP FILE
+========================================================================

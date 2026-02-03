@@ -1,0 +1,12 @@
+{
+  "sections": [
+    {
+      "ram_section": "DLMU2",
+      "ram_name": "DATA_DLMU_2"
+    },
+    {
+      "ram_section": "DLMU1",
+      "ram_name": "DATA_DLMU_1"
+    }
+  ]
+}
