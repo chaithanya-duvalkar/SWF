@@ -5,7 +5,7 @@ import pandas as pd
 
 
 # ============================================================
-# Detect format
+# Detect CTC format
 # ============================================================
 
 def detect_format(map_file):
@@ -19,8 +19,7 @@ def detect_format(map_file):
 
 
 # ============================================================
-# Parse CTC Map File
-# (NO CHANGE TO YOUR EXISTING LOGIC)
+# Parse map file (UNCHANGED LOGIC)
 # ============================================================
 
 def parse_ctc_map(map_file):
@@ -45,7 +44,7 @@ def parse_ctc_map(map_file):
     all_regions = []
     nested_sections = []
 
-    # Build regions
+    # Build memory regions
     for name, start in symbols.items():
 
         if not name.endswith("_START"):
@@ -59,7 +58,7 @@ def parse_ctc_map(map_file):
 
         usage = 0
 
-        # Find subsections
+        # Subsections
         for sub, sub_start in symbols.items():
 
             if sub.startswith(base) and not sub.endswith("_START"):
@@ -100,7 +99,7 @@ def parse_ctc_map(map_file):
 
 
 # ============================================================
-# Hierarchical Sheet Generator (FIXED VERSION)
+# Hierarchical Sheet (CORRECTED AS PER TEAM LEAD FORMAT)
 # ============================================================
 
 def create_hierarchical_sheet(all_regions, nested_sections):
@@ -110,98 +109,106 @@ def create_hierarchical_sheet(all_regions, nested_sections):
     for region in all_regions:
 
         region_name = region["Section"]
+
         start_addr = region["Start_Address"]
         end_addr = region["End_Address"]
 
-        # Clean name like DLMU1, DSPR2
-        clean_name = region_name.split("_")[-1]
+        # Clean region name like DLMU0, DSPR2
+        clean_region = region_name.split("_")[-1]
 
-        # Start label
+        # Region start
         hierarchical.append({
-
-            "Label": f"_lc_gb_{clean_name}",
+            "Label": f"_lc_gb_{clean_region}",
             "Section": "",
             "Group": "",
             "Address/Size": start_addr
-
         })
 
-        # Subsections for this region
-        region_subs = [
+        # Process subsections
+        for sub in nested_sections:
 
-            sub for sub in nested_sections
-            if sub["Parent_Section"] == region_name
-
-        ]
-
-        for sub in region_subs:
-
-            full_name = sub["Sub_Section"]
-
-            # Ignore corema entries
-            if "COREMA" in full_name.upper():
+            if sub["Parent_Section"] != region_name:
                 continue
 
-            # Handle .bss.share, .rodata.share, etc.
-            if full_name.startswith("."):
+            full_name = sub["Sub_Section"]
+            upper = full_name.upper()
 
-                parts = full_name.split(".")
+            # Ignore unwanted linker symbols
+            if any(x in upper for x in [
+                "IOPT_MEMLOC",
+                "_END",
+                "_SIZE",
+                "COREMA"
+            ]):
+                continue
+
+            # Remove region prefix
+            if full_name.startswith(region_name + "_"):
+                remaining = full_name[len(region_name) + 1:]
+            else:
+                remaining = full_name
+
+            # Handle .bss.share .rodata.share .data.share
+            if remaining.startswith("."):
+
+                parts = remaining.split(".")
 
                 if len(parts) >= 3:
-                    section = "." + parts[1] + "." + parts[2]
+
+                    section = "." + ".".join(parts[1:-1])
                     group = parts[-1]
+
                 else:
-                    section = full_name
+
+                    section = remaining
                     group = ""
 
             else:
 
-                parts = full_name.split("_")
+                parts = remaining.split("_")
 
-                if len(parts) >= 3:
-                    section = "_".join(parts[:3])
-                    group = "_".join(parts[3:])
+                # group keywords
+                if parts[-1] in ["EXPLC", "RELOC"]:
+
+                    section = "_".join(parts[:-1])
+                    group = parts[-1]
+
                 else:
-                    section = full_name
+
+                    section = remaining
                     group = ""
 
-            # Section row
+            # Add section row
             hierarchical.append({
-
                 "Label": "",
                 "Section": section,
                 "Group": "",
                 "Address/Size": sub["Start_Address"]
-
             })
 
-            # Group row
+            # Add group row
             if group:
 
                 hierarchical.append({
-
                     "Label": "",
                     "Section": section,
                     "Group": group,
                     "Address/Size": sub["Size"]
-
                 })
 
-        # End label
+        # Region end
         hierarchical.append({
-
-            "Label": f"_lc_ge_{clean_name}",
+            "Label": f"_lc_ge_{clean_region}",
             "Section": "",
             "Group": "",
             "Address/Size": end_addr
-
         })
 
     return pd.DataFrame(hierarchical)
 
 
 # ============================================================
-# Export Excel (4 sheets)
+# Export Excel
 # ============================================================
 
 def export_excel(all_regions, nested_sections, output_file):
@@ -219,39 +226,32 @@ def export_excel(all_regions, nested_sections, output_file):
 
     with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
 
-        # Sheet 1
         pd.DataFrame(all_regions).to_excel(
             writer,
             sheet_name="All_Memory_Regions",
             index=False
         )
 
-        # Sheet 2
         pd.DataFrame(nested_sections).to_excel(
             writer,
             sheet_name="Sub_Sections",
             index=False
         )
 
-        # Sheet 3
         pd.DataFrame(reset_safe).to_excel(
             writer,
             sheet_name="Reset_Safe_Area",
             index=False
         )
 
-        # Sheet 4 (TEAM LEAD FORMAT)
-        hierarchical_df.to_excel(
+        pd.DataFrame(hierarchical_df).to_excel(
             writer,
             sheet_name="Hierarchical_Sub_Sections",
             index=False
         )
 
     print("\nExcel generated successfully")
-    print(f"All regions     : {len(all_regions)}")
-    print(f"Sub sections    : {len(nested_sections)}")
-    print(f"Reset Safe      : {len(reset_safe)}")
-    print(f"Hierarchical    : {len(hierarchical_df)}")
+    print("Output file:", output_file)
 
 
 # ============================================================
@@ -272,9 +272,9 @@ if __name__ == "__main__":
 
     if detect_format(map_file) != "ctc":
 
-        print("Only CTC format supported")
+        print("Only CTC map format supported")
         sys.exit(1)
 
-    regions, nested_sections = parse_ctc_map(map_file)
+    all_regions, nested_sections = parse_ctc_map(map_file)
 
-    export_excel(regions, nested_sections, output)
+    export_excel(all_regions, nested_sections, output)
