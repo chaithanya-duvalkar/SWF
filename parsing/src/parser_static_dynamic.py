@@ -4,7 +4,7 @@ import pandas as pd
 
 
 # ============================================================
-# Parse map file (same as your working extraction)
+# Parse map file
 # ============================================================
 
 def parse_ctc_map(map_file):
@@ -15,6 +15,7 @@ def parse_ctc_map(map_file):
     with open(map_file, "r", encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
+    # Extract symbols and sizes
     for line in lines:
 
         sym = re.search(r"\|\s*([A-Za-z0-9_\.]+)\s*\|\s*(0x[0-9A-Fa-f]+)", line)
@@ -28,6 +29,7 @@ def parse_ctc_map(map_file):
     all_regions = []
     nested_sections = []
 
+    # Build regions
     for name, start in symbols.items():
 
         if not name.endswith("_START"):
@@ -61,7 +63,7 @@ def parse_ctc_map(map_file):
 
                 })
 
-        free = total_size - usage
+        free_space = total_size - usage
 
         all_regions.append({
 
@@ -70,7 +72,7 @@ def parse_ctc_map(map_file):
             "End_Address": hex(end),
             "Total_Size": hex(total_size),
             "Usage": hex(usage),
-            "Free_Space": hex(free)
+            "Free_Space": hex(free_space)
 
         })
 
@@ -78,7 +80,7 @@ def parse_ctc_map(map_file):
 
 
 # ============================================================
-# Hierarchical sheet generator (EXACT TEAM LEAD FORMAT)
+# Create Hierarchical Sheet
 # ============================================================
 
 def create_hierarchical_sheet(all_regions, nested_sections):
@@ -89,12 +91,14 @@ def create_hierarchical_sheet(all_regions, nested_sections):
 
         region_name = region["Section"]
 
-        # Start label
+        # Region start label
         rows.append({
+
             "Label": f"_lc_gb_{region_name}",
             "Section": "",
             "Group": "",
             "Address/Size": region["Start_Address"]
+
         })
 
         for sub in nested_sections:
@@ -106,7 +110,7 @@ def create_hierarchical_sheet(all_regions, nested_sections):
 
             upper = full.upper()
 
-            # Ignore unwanted linker symbols
+            # Ignore unwanted symbols
             if ("IOPT_MEMLOC" in upper or
                 upper.endswith("_START") or
                 upper.endswith("_END") or
@@ -114,16 +118,23 @@ def create_hierarchical_sheet(all_regions, nested_sections):
                 "COREMA" in upper):
                 continue
 
-            # Remove prefix DLMU0_
+            # Remove region prefix
             remaining = full[len(region_name) + 1:]
 
-            # SHARE sections
+            # Handle share sections
             if remaining.startswith("."):
 
                 parts = remaining.split(".")
 
-                section = "." + ".".join(parts[1:-1])
-                group = parts[-1]
+                if len(parts) >= 3:
+
+                    section = "." + ".".join(parts[1:-1])
+                    group = parts[-1]
+
+                else:
+
+                    section = remaining
+                    group = ""
 
             else:
 
@@ -139,7 +150,7 @@ def create_hierarchical_sheet(all_regions, nested_sections):
                     section = remaining
                     group = ""
 
-            # Section row
+            # Add Section row
             rows.append({
 
                 "Label": "",
@@ -149,7 +160,7 @@ def create_hierarchical_sheet(all_regions, nested_sections):
 
             })
 
-            # Group row
+            # Add Group row
             if group:
 
                 rows.append({
@@ -161,47 +172,81 @@ def create_hierarchical_sheet(all_regions, nested_sections):
 
                 })
 
-        # End label
+        # Region end label
         rows.append({
+
             "Label": f"_lc_ge_{region_name}",
             "Section": "",
             "Group": "",
             "Address/Size": region["End_Address"]
+
         })
 
     return pd.DataFrame(rows)
 
 
 # ============================================================
-# Export Excel (4 sheets)
+# Export Excel safely
 # ============================================================
 
 def export_excel(all_regions, nested_sections, output):
 
+    print("Regions found:", len(all_regions))
+    print("Subsections found:", len(nested_sections))
+
     reset_safe = [
+
         r for r in all_regions
         if "RST_SAFE" in r["Section"].upper()
+
     ]
 
     hierarchical = create_hierarchical_sheet(all_regions, nested_sections)
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
-        pd.DataFrame(all_regions).to_excel(writer,
-                                           "All_Memory_Regions",
-                                           index=False)
+        # Always write at least one sheet
+        if all_regions:
+            pd.DataFrame(all_regions).to_excel(
+                writer,
+                sheet_name="All_Memory_Regions",
+                index=False
+            )
+        else:
+            pd.DataFrame({"Info": ["No regions found"]}).to_excel(
+                writer,
+                sheet_name="All_Memory_Regions",
+                index=False
+            )
 
-        pd.DataFrame(nested_sections).to_excel(writer,
-                                               "Sub_Sections",
-                                               index=False)
+        if nested_sections:
+            pd.DataFrame(nested_sections).to_excel(
+                writer,
+                sheet_name="Sub_Sections",
+                index=False
+            )
 
-        pd.DataFrame(reset_safe).to_excel(writer,
-                                          "Reset_Safe_Area",
-                                          index=False)
+        if reset_safe:
+            pd.DataFrame(reset_safe).to_excel(
+                writer,
+                sheet_name="Reset_Safe_Area",
+                index=False
+            )
 
-        hierarchical.to_excel(writer,
-                              "Hierarchical_Sub_Sections",
-                              index=False)
+        if not hierarchical.empty:
+            hierarchical.to_excel(
+                writer,
+                sheet_name="Hierarchical_Sub_Sections",
+                index=False
+            )
+        else:
+            pd.DataFrame({"Info": ["No hierarchical sections found"]}).to_excel(
+                writer,
+                sheet_name="Hierarchical_Sub_Sections",
+                index=False
+            )
+
+    print("\nSUCCESS: Excel generated:", output)
 
 
 # ============================================================
@@ -210,6 +255,12 @@ def export_excel(all_regions, nested_sections, output):
 
 if __name__ == "__main__":
 
+    if len(sys.argv) < 2:
+
+        print("Usage:")
+        print("python map_parser_ctc.py your.map memory_layout.xlsx")
+        sys.exit(1)
+
     map_file = sys.argv[1]
 
     output = sys.argv[2] if len(sys.argv) > 2 else "memory_layout.xlsx"
@@ -217,5 +268,3 @@ if __name__ == "__main__":
     regions, subsections = parse_ctc_map(map_file)
 
     export_excel(regions, subsections, output)
-
-    print("SUCCESS: Excel generated correctly.")
